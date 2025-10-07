@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>מרכז הבקרה - ח.סבן (גרסה משודרגת)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <meta name="theme-color" content="#128C7E" />
+  <style>
+    :root{--bg:#efeae2;--wa-green:#128C7E;--wa-teal:#008069;--muted:#667781;--danger:#d9534f;--card:#fff;--glass: rgba(255,255,255,0.62);}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Assistant,system-ui,Arial;background:linear-gradient(180deg,var(--wa-teal) 0%, #ffffff 60%);}
+    #app{max-width:860px;margin:12px auto;height:calc(100vh - 24px);display:grid;grid-template-columns:340px 1fr;border-radius:14px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.18);background:var(--card)}
+    /* LEFT: contact / dashboard list */
+    .left{background:linear-gradient(180deg,var(--card),#fbfbfb);display:flex;flex-direction:column;border-left:1px solid #eee}
+    .left .search{padding:14px;border-bottom:1px solid #eee}
+    .search input{width:100%;padding:12px;border-radius:999px;border:1px solid #eee}
+    .clients{flex:1;overflow:auto;padding:8px}
+    .client-card{display:flex;align-items:center;gap:12px;padding:10px;border-radius:10px;cursor:pointer;margin-bottom:8px}
+    .client-card.active{background:linear-gradient(90deg, rgba(0,140,120,0.06), rgba(0,140,120,0.03));}
+    .avatar{width:48px;height:48px;border-radius:50%;background:#f0f0f0}
+    .meta{flex:1}
+    .meta .name{font-weight:700}
+    .meta .sub{color:var(--muted);font-size:0.9rem}
+    .badge{background:var(--wa-green);color:#fff;padding:6px 8px;border-radius:999px;font-weight:700}
+
+    /* RIGHT: main area (chat + dashboard) */
+    .right{display:flex;flex-direction:column;height:100%}
+    header.app-header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid #eee;background:linear-gradient(90deg, rgba(255,255,255,0.4), transparent)}
+    .hero{display:flex;align-items:center;gap:12px}
+    .name{font-weight:700}
+    .status{color:var(--muted);font-size:0.9rem}
+    .controls{margin-left:auto;display:flex;gap:8px}
+    .btn{background:var(--wa-teal);color:#fff;padding:8px 12px;border-radius:10px;border:none;cursor:pointer}
+
+    /* dashboard area */
+    .main-area{display:grid;grid-template-rows:1fr 320px;gap:8px;padding:12px;overflow:auto}
+    .cards{display:flex;gap:8px;flex-wrap:wrap}
+    .card{flex:1 1 250px;background:var(--card);padding:12px;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+    .progress{height:10px;background:#efefef;border-radius:6px;overflow:hidden}
+    .progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--wa-green),var(--wa-teal));width:30%}
+
+    /* chat panel */
+    .chat{display:flex;flex-direction:column;height:100%}
+    .messages{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+    .bubble{max-width:78%;padding:10px;border-radius:10px;word-wrap:break-word}
+    .out{align-self:flex-end;background:#dcf8c6}
+    .in{align-self:flex-start;background:#fff;border:1px solid #eee}
+    .system{align-self:center;background:linear-gradient(90deg,#fff6d9,#fff);padding:8px 12px;border-radius:999px;color:#333}
+    .chat-footer{display:flex;gap:8px;padding:10px;border-top:1px solid #eee;align-items:center}
+    .input{flex:1;border-radius:999px;padding:10px 14px;border:1px solid #eee}
+    .quick-replies{display:flex;gap:8px;padding:8px 12px;overflow:auto}
+    .qr{background:#f7f7f7;padding:8px 10px;border-radius:999px;cursor:pointer}
+
+    /* toast */
+    .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:#222;color:#fff;padding:10px 16px;border-radius:999px;opacity:0;transition:all .25s}
+    .toast.show{opacity:1;bottom:32px}
+
+    /* responsive */
+    @media(max-width:880px){#app{grid-template-columns:1fr;height:100vh}}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="left">
+      <div class="search">
+        <input id="global-search" placeholder="חפש לקוח / פרויקט / מוצר...">
+      </div>
+      <div class="clients" id="clients-list"></div>
+      <div style="padding:10px;border-top:1px solid #eee;display:flex;gap:8px;align-items:center;justify-content:space-between">
+        <small style="color:var(--muted)">גרסה 1.1 - משודרג</small>
+        <button id="new-order-btn" class="btn">הזמנה מהירה</button>
+      </div>
+    </div>
+
+    <div class="right">
+      <header class="app-header">
+        <div class="hero"><img id="client-avatar" class="avatar" src="https://i.postimg.cc/rsxW32Jj/logo.png" alt="avatar"><div><div class="name" id="client-name">אנא התחבר</div><div class="status" id="client-status">מחובר</div></div></div>
+        <div class="controls">
+          <button id="refresh-btn" class="btn">רענן</button>
+          <button id="admin-toggle" class="btn">מצב מנהל</button>
+        </div>
+      </header>
+
+      <div class="main-area">
+        <div class="top-row">
+          <div class="cards" id="dashboard-cards"></div>
+        </div>
+
+        <div class="bottom-row" style="display:flex;gap:8px;">
+          <div style="flex:1;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;border:1px solid #eee;">
+            <div style="padding:8px;border-bottom:1px solid #eee;background:linear-gradient(90deg, rgba(0,140,120,0.03), transparent);font-weight:700">שיחה</div>
+            <div class="chat" id="chat-panel">
+              <div class="messages" id="messages"></div>
+              <div class="quick-replies" id="quick-replies"></div>
+              <div class="chat-footer">
+                <input id="message-input" class="input" placeholder="הקלד הודעה... (נוסח טבעי בעברית)">
+                <button id="send-btn" class="btn"><i class="fa-solid fa-paper-plane"></i></button>
+              </div>
+            </div>
+          </div>
+
+          <div style="width:360px;display:flex;flex-direction:column;gap:8px">
+            <div class="card" id="map-card" style="height:220px;padding:6px">
+              <div id="mini-map" style="height:100%;border-radius:8px;background:#f6f6f6"></div>
+            </div>
+            <div class="card" id="order-preview">
+              <div style="font-weight:700;margin-bottom:6px">טיוטת הזמנה חכמה</div>
+              <div id="order-draft">אין טיוטה פעילה.</div>
+              <div style="margin-top:8px;display:flex;gap:8px"><button id="confirm-order" class="btn">אשר והכנס</button><button id="edit-order" class="btn" style="background:#fff;color:var(--wa-teal);border:1px solid #eee">ערוך</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">הודעה</div>
+
+  <script>
+    // CONFIG
+    const API_URL = 'https://saban-proxy.hsaban2025.workers.dev/'; // החלף לכתובת ה-API שלך
+    let CLIENT = null;
+    let POLL_INTERVAL = 5000; // polling every 5s - ניתן לשדרג ל-WebSocket
+    let pollTimer = null;
+
+    // --- Utils ---
+    function toast(text, timeout=2500){const t=document.getElementById('toast');t.textContent=text;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),timeout)}
+    function el(tag,cls){const e=document.createElement(tag);if(cls) e.className=cls;return e}
+
+    // --- optimistic UI helpers ---
+    function addMessage(text, type='in', meta={}){
+      const container = document.getElementById('messages');
+      const b = el('div','bubble ' + (type==='out' ? 'out' : type==='system' ? 'system' : 'in'));
+      b.innerHTML = text;
+      container.appendChild(b);
+      container.scrollTop = container.scrollHeight;
+      return b;
+    }
+
+    // --- lightweight Hebrew NLU (starter) ---
+    // This is a pragmatic parser to extract quantity, unit, and product from free text in Hebrew.
+    // For production - replace with a proper Hebrew NLP service or a small fine-tuned model.
+    function simpleHebrewParser(text){
+      text = text.replace(/[.,!?؛]/g,' ').trim();
+      // numbers and words
+      const numberMatch = text.match(/(\d+|אחת|שניים|שתיים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר)/);
+      let qty = numberMatch ? (isNaN(numberMatch[0]) ? 1 : parseInt(numberMatch[0])) : 1;
+      // find common units
+      const units = ['שק','שקים','יח','קופסאות','יחידות','גליל','מטר'];
+      let unit = units.find(u => text.includes(u)) || 'יחידה';
+      // candidate product = words after verbs like צריך/רוצה/אבקש/להזמין
+      const verbs = ['צריך','רוצה','אבקש','להזמין','מבקש','נא להזמין','מחפש'];
+      let product = null;
+      for(const v of verbs){
+        const idx = text.indexOf(v);
+        if(idx>=0){
+          product = text.slice(idx+v.length).trim();
+          break;
+        }
+      }
+      if(!product) product = text.split(' ').slice(0,3).join(' ');
+      // clean numeric tokens
+      product = product.replace(/^(\d+\s*)/,'').trim();
+      return {quantity:qty, unit, product};
+    }
+
+    // --- API ---
+    async function apiPost(payload){
+      try{
+        const res = await fetch(API_URL, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        return await res.json();
+      }catch(e){console.error('API error',e);return {success:false,error:e.message}};
+    }
+
+    // --- App logic ---
+    async function loadClients(){
+      // Example - call server to get clients list
+      const resp = await apiPost({action:'listClients'});
+      const list = (resp.success && resp.data) ? resp.data : [
+        {id:'60120',name:'בר אורניל',avatar:'https://i.postimg.cc/rsxW32Jj/logo.png',ordersCount:2},
+        {id:'60230',name:'אלכס פרויקט',avatar:'https://i.postimg.cc/tCpLp7B6/image.png',ordersCount:0}
+      ];
+      const container = document.getElementById('clients-list');container.innerHTML='';
+      list.forEach(c=>{
+        const card = el('div','client-card');card.dataset.clientId=c.id;
+        card.innerHTML = `<img class=avatar src="${c.avatar}"><div class=meta><div class=name>${c.name}</div><div class=sub>הזמנות פעילות: ${c.ordersCount}</div></div><div class=badge> ${c.id}</div>`;
+        card.onclick = ()=>selectClient(c);
+        container.appendChild(card);
+      });
+    }
+
+    async function selectClient(c){
+      CLIENT = c;
+      document.getElementById('client-name').textContent = c.name;
+      document.getElementById('client-avatar').src = c.avatar;
+      document.querySelectorAll('.client-card').forEach(n=>n.classList.remove('active'));
+      const cards = Array.from(document.querySelectorAll('.client-card')).find(x=>x.dataset.clientId==c.id); if(cards) cards.classList.add('active');
+      toast('טוען לוח בקרה עבור ' + c.name);
+      await refreshDashboard();
+      startPolling();
+    }
+
+    async function refreshDashboard(){
+      if(!CLIENT) return;
+      const resp = await apiPost({action:'getDashboardData',clientId:CLIENT.id});
+      let data = (resp.success && resp.data) ? resp.data.dashboard : null;
+      // Fallback for design time
+      if(!data) data = {orders:[], summary:{containers:0,materials:0}};
+
+      // build top cards
+      const cards = document.getElementById('dashboard-cards');cards.innerHTML='';
+      const summaryCard = el('div','card');summaryCard.innerHTML = `<div style='font-weight:700'>סיכום</div><div style='margin-top:8px'>מכולות פעילות: ${data.summary.containers||0}<br>הזמנות חומרים: ${data.summary.materials||0}</div>`;
+      cards.appendChild(summaryCard);
+
+      // orders as smart cards
+      (data.orders||[]).slice(0,6).forEach(o=>{
+        const ccard = el('div','card');
+        const days = o.startDate ? Math.max(0, Math.floor((Date.now()- new Date(o.startDate))/864e5)) : 0;
+        const prog = Math.min(100, Math.round((days/10)*100));
+        ccard.innerHTML = `<div style='font-weight:700'>${o.project||o.product||'הזמנה'}</div><div style='color:var(--muted);margin-top:6px'>${o.address||'כתובת לא ידועה'}</div><div style='margin-top:8px'><div class='progress'><i style='width:${prog}%'></i></div><small> ימים: ${days} / 10</small></div><div style='margin-top:10px;display:flex;gap:8px'><button class='btn' onclick='openOrderDetail(${JSON.stringify(o).replace(/'/g,\"\\'\")})'>פרטים</button><button class='btn' onclick='quickAction("deliver",${JSON.stringify(o).replace(/'/g,\"\\'\")})'>סמן כהושלם</button></div>`;
+        cards.appendChild(ccard);
+      });
+
+      // map preview - set marker if first order has coords
+      if((data.orders||[]).length>0 && data.orders[0].lat){
+        setMiniMap(data.orders[0].lat, data.orders[0].lon);
+      }
+    }
+
+    function setMiniMap(lat, lon){
+      setTimeout(()=>{
+        const elmap = document.getElementById('mini-map');elmap.innerHTML='';
+        const map = L.map(elmap,{zoomControl:false,attributionControl:false}).setView([lat,lon],14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        L.marker([lat,lon]).addTo(map);
+      },100);
+    }
+
+    // --- Message flow ---
+    document.getElementById('send-btn').onclick = async ()=>{
+      const input = document.getElementById('message-input');
+      const text = input.value.trim(); if(!text) return;
+      // optimistic UI
+      addMessage(text,'out');
+      input.value='';
+
+      // parse with simple NLU
+      const draft = simpleHebrewParser(text);
+      showDraft(draft);
+
+      // send to server for creation and persistent parsing
+      const resp = await apiPost({action:'createOrderFromText',clientId:CLIENT?.id||null,text});
+      if(resp && resp.success){
+        addMessage('הזמנה ' + (resp.data?.orderId || 'נוצרה') + ' נרשמה במערכת.','in');
+        await refreshDashboard();
+      } else {
+        addMessage('אירעה שגיאה: ' + (resp.error || 'לא נוצרה הזמנה'),'system');
+      }
+    }
+
+    function showDraft(d){
+      const draft = document.getElementById('order-draft');
+      draft.innerHTML = `<div><b>${d.quantity} × ${d.product}</b><div style='color:var(--muted)'>יחידה: ${d.unit}</div></div>`;
+      // quick confirm
+      document.getElementById('confirm-order').onclick = async ()=>{
+        // call server to create with structured payload
+        const resp = await apiPost({action:'createStructuredOrder', clientId:CLIENT?.id || null, product:d.product, quantity:d.quantity, unit:d.unit});
+        if(resp.success){toast('הזמנה נוצרה בהצלחה');await refreshDashboard();document.getElementById('order-draft').innerHTML='אין טיוטה פעילה.'}
+        else{toast('שגיאה ביצירת הזמנה: '+resp.error)}
+      }
+    }
+
+    // quick replies suggestions – depends on parsed user patterns
+    function setQuickReplies(list){
+      const container = document.getElementById('quick-replies');container.innerHTML='';
+      list.forEach(q=>{const b = el('div','qr');b.textContent=q;b.onclick=()=>{document.getElementById('message-input').value=q;};container.appendChild(b)});
+    }
+
+    // Polling
+    function startPolling(){ if(pollTimer) clearInterval(pollTimer); pollTimer = setInterval(()=>{ if(CLIENT) refreshDashboard(); }, POLL_INTERVAL);}    
+    function stopPolling(){ if(pollTimer) clearInterval(pollTimer); pollTimer=null}
+
+    // init
+    (async function(){
+      await loadClients();
+      // sample quick replies
+      setQuickReplies(['רוצה 4 שקים מלט','שלח הצעת מחיר','אפשר בזמן הבא?']);
+
+      // search
+      document.getElementById('global-search').oninput = (e)=>{
+        const q = e.target.value.toLowerCase(); document.querySelectorAll('.client-card').forEach(c=>{
+          const text = c.textContent.toLowerCase(); c.style.display = text.includes(q) ? 'flex' : 'none';
+        })
+      }
+
+      document.getElementById('refresh-btn').onclick = ()=>{ if(CLIENT) refreshDashboard(); else toast('אנא בחר לקוח'); };
+      document.getElementById('new-order-btn').onclick = ()=>{ document.getElementById('message-input').value = 'רוצה להזמין 1 × טיט שק'; document.getElementById('send-btn').click(); };
+
+      // admin toggle (local UI mode)
+      document.getElementById('admin-toggle').onclick = (e)=>{ e.target.textContent = e.target.textContent.includes('מנהל') ? 'מצב לקוח' : 'מצב מנהל'; toast('מצב ה-UI שונה'); };
+
+    })();
+
+    // Expose some helpers to inline onclicks (only for prototype)
+    window.openOrderDetail = function(o){ alert('פתחתי פרטי הזמנה:\n' + JSON.stringify(o,null,2)) }
+    window.quickAction = async function(action,o){ if(action==='deliver'){
+      const resp = await apiPost({action:'updateOrderStatus', orderId:o.id, status:'completed'});
+      if(resp.success){ toast('עודכן סטטוס'); refreshDashboard(); } else { toast('שגיאה: '+resp.error); }
+    }}
+  </script>
+</body>
+</html>
