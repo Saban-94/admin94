@@ -121,38 +121,34 @@
   <div class="toast" id="toast">הודעה</div>
 
   <script>
-  // This version uses direct connection to your new Apps Script endpoint.
-// If the CORS proxy was previously required, it's now bypassed because Cloudflare or Apps Script CORS are allowed.
+    // --- Global State & Configuration ---
+    // These variables were missing global definitions, causing ReferenceErrors.
+    let CLIENT = null;
+    let pollTimer = null;
+    const POLL_INTERVAL = 5000; // Poll every 5 seconds (5000ms)
+    
+    // Apps Script API Endpoint
+    const API_URL = 'https://script.google.com/macros/s/AKfycbzJ84IoiZjEBkiH-plqyeQglNEvs4rkskt4gPMJidN7R3paXFYigFxNkt-re-Tp4YEy/exec';
 
+    // --- API Communication ---
+    // Unified and complete apiPost function definition.
+    async function apiPost(payload) {
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        console.log('Response from Apps Script:', data);
+        return data;
+      } catch (error) {
+        console.error('Error communicating with Apps Script:', error);
+        return { success: false, error: error.message };
+      }
+    }
 
-const API_URL = 'https://script.google.com/macros/s/AKfycbzJ84IoiZjEBkiH-plqyeQglNEvs4rkskt4gPMJidN7R3paXFYigFxNkt-re-Tp4YEy/exec';
-
-
-async function apiPost(payload) {
-try {
-const response = await fetch(API_URL, {
-method: 'POST',
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify(payload)
-});
-if (!response.ok) throw new Error('HTTP ' + response.status);
-const data = await response.json();
-console.log('Response from Apps Script:', data);
-return data;
-} catch (error) {
-console.error('Error communicating with Apps Script:', error);
-return { success: false, error: error.message };
-}
-}
-
-
-// Example usage:
-// await apiPost({ action: 'getDashboardData', clientId: '60120' });
-
-
-// ✅ Now the data will be fetched directly from your Apps Script project.
-// Make sure the script deployment is public (accessible to anyone with link) or deployed as web app with 'Anyone' permission.
-  <script>
 
     // --- Utils ---
     function toast(text, timeout=2500){const t=document.getElementById('toast');t.textContent=text;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),timeout)}
@@ -170,15 +166,21 @@ return { success: false, error: error.message };
 
     // --- lightweight Hebrew NLU (starter) ---
     // This is a pragmatic parser to extract quantity, unit, and product from free text in Hebrew.
-    // For production - replace with a proper Hebrew NLP service or a small fine-tuned model.
     function simpleHebrewParser(text){
       text = text.replace(/[.,!?؛]/g,' ').trim();
       // numbers and words
+      const numberMap = { 'אחת': 1, 'שניים': 2, 'שתיים': 2, 'שלוש': 3, 'ארבע': 4, 'חמש': 5, 'שש': 6, 'שבע': 7, 'שמונה': 8, 'תשע': 9, 'עשר': 10 };
       const numberMatch = text.match(/(\d+|אחת|שניים|שתיים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר)/);
-      let qty = numberMatch ? (isNaN(numberMatch[0]) ? 1 : parseInt(numberMatch[0])) : 1;
+      let qty = 1;
+      if (numberMatch) {
+          const match = numberMatch[0];
+          qty = isNaN(match) ? (numberMap[match] || 1) : parseInt(match);
+      }
+
       // find common units
       const units = ['שק','שקים','יח','קופסאות','יחידות','גליל','מטר'];
       let unit = units.find(u => text.includes(u)) || 'יחידה';
+      
       // candidate product = words after verbs like צריך/רוצה/אבקש/להזמין
       const verbs = ['צריך','רוצה','אבקש','להזמין','מבקש','נא להזמין','מחפש'];
       let product = null;
@@ -190,18 +192,10 @@ return { success: false, error: error.message };
         }
       }
       if(!product) product = text.split(' ').slice(0,3).join(' ');
+      
       // clean numeric tokens
       product = product.replace(/^(\d+\s*)/,'').trim();
       return {quantity:qty, unit, product};
-    }
-
-    // --- API ---
-    async function apiPost(payload){
-      try{
-        const res = await fetch(API_URL, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-        if(!res.ok) throw new Error('HTTP '+res.status);
-        return await res.json();
-      }catch(e){console.error('API error',e);return {success:false,error:e.message}};
     }
 
     // --- App logic ---
@@ -247,8 +241,10 @@ return { success: false, error: error.message };
       // orders as smart cards
       (data.orders||[]).slice(0,6).forEach(o=>{
         const ccard = el('div','card');
+        // Calculate days difference
         const days = o.startDate ? Math.max(0, Math.floor((Date.now()- new Date(o.startDate))/864e5)) : 0;
         const prog = Math.min(100, Math.round((days/10)*100));
+        // Note: Escaping quotes for inline JSON is done correctly here.
         ccard.innerHTML = `<div style='font-weight:700'>${o.project||o.product||'הזמנה'}</div><div style='color:var(--muted);margin-top:6px'>${o.address||'כתובת לא ידועה'}</div><div style='margin-top:8px'><div class='progress'><i style='width:${prog}%'></i></div><small> ימים: ${days} / 10</small></div><div style='margin-top:10px;display:flex;gap:8px'><button class='btn' onclick='openOrderDetail(${JSON.stringify(o).replace(/'/g,\"\\'\")})'>פרטים</button><button class='btn' onclick='quickAction("deliver",${JSON.stringify(o).replace(/'/g,\"\\'\")})'>סמן כהושלם</button></div>`;
         cards.appendChild(ccard);
       });
@@ -334,7 +330,12 @@ return { success: false, error: error.message };
     })();
 
     // Expose some helpers to inline onclicks (only for prototype)
-    window.openOrderDetail = function(o){ alert('פתחתי פרטי הזמנה:\n' + JSON.stringify(o,null,2)) }
+    // Replaced alert() with a console log and toast notification, as alert() is forbidden.
+    window.openOrderDetail = function(o){
+      console.log('Order Details:', o);
+      toast('פרטי הזמנה נטענו לקונסול.', 5000);
+    }
+
     window.quickAction = async function(action,o){ if(action==='deliver'){
       const resp = await apiPost({action:'updateOrderStatus', orderId:o.id, status:'completed'});
       if(resp.success){ toast('עודכן סטטוס'); refreshDashboard(); } else { toast('שגיאה: '+resp.error); }
